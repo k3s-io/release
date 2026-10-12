@@ -1,0 +1,86 @@
+name: Sync k8s tags to k3s-io/kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_k8s_version:
+        description: "New upstream k8s tag (e.g. v1.33.13)"
+        required: true
+        type: string
+      old_k8s_version:
+        description: "Previous k8s tag (blank = derive from fork k3s tags)"
+        required: false
+        type: string
+      new_suffix:
+        description: "k3s suffix"
+        required: false
+        default: "k3s1"
+        type: string
+      dry_run:
+        description: "Dry run (generate + print, do not push)"
+        required: false
+        default: true
+        type: boolean
+  workflow_call:
+    inputs:
+      new_k8s_version:
+        required: true
+        type: string
+      old_k8s_version:
+        required: false
+        type: string
+      new_suffix:
+        required: false
+        default: "k3s1"
+        type: string
+      dry_run:
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      K8S_PUSH_TOKEN:
+        required: false
+
+jobs:
+  sync-tags:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # target fork; override with repo variable K8S_REPO for testing
+      K8S_REPO: ${{ vars.K8S_REPO || 'k3s-io/kubernetes' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: release
+          persist-credentials: false
+
+      - name: Checkout ${{ env.K8S_REPO }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.K8S_REPO }}
+          path: kubernetes
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Generate k3s tags
+        env:
+          NEW_K8S_VERSION: ${{ inputs.new_k8s_version }}
+          OLD_K8S_VERSION: ${{ inputs.old_k8s_version }}
+          NEW_SUFFIX: ${{ inputs.new_suffix }}
+          GIT_USER_NAME: "github-actions[bot]"
+          GIT_USER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+          WORKSPACE: ${{ github.workspace }}/kubernetes
+        run: |
+          export K3S_FORK_URL="https://github.com/${K8S_REPO}.git"
+          "${GITHUB_WORKSPACE}/release/.github/scripts/generate-k3s-tags.sh"
+
+      - name: Push k3s tags
+        env:
+          NEW_K8S_VERSION: ${{ inputs.new_k8s_version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          WORKSPACE: ${{ github.workspace }}/kubernetes
+          GH_TOKEN: ${{ secrets.K8S_PUSH_TOKEN }}
+        run: '"${GITHUB_WORKSPACE}/release/.github/scripts/push-k3s-tags.sh"'

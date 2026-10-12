@@ -1,0 +1,66 @@
+name: Poll upstream k8s and sync tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run for manual poll"
+        required: false
+        default: true
+        type: boolean
+
+permissions: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      count: ${{ steps.detect.outputs.count }}
+      dry_run: ${{ steps.cfg.outputs.dry_run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Detect new upstream releases
+        id: detect
+        env:
+         K8S_REPO: ${{ vars.K8S_REPO || 'k3s-io/kubernetes' }}
+        run: |
+         export K3S_FORK_URL="https://github.com/${K8S_REPO}.git"
+         ./.github/scripts/poll-upstream-k8s.sh
+
+      - name: Resolve dry_run
+        id: cfg
+        env:
+          EVENT: ${{ github.event_name }}
+          DISPATCH_DRY: ${{ inputs.dry_run }}
+          VAR_DRY: ${{ vars.SYNC_DRY_RUN }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "dry_run=${DISPATCH_DRY:-true}" >> "$GITHUB_OUTPUT"
+          elif [ "$VAR_DRY" = "false" ]; then
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  sync:
+    needs: poll
+    if: needs.poll.outputs.count != '0'
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.poll.outputs.matrix) }}
+    uses: ./.github/workflows/sync-k8s-tags.yaml
+    with:
+      new_k8s_version: ${{ matrix.new_k8s_version }}
+      old_k8s_version: ${{ matrix.old_k8s_version }}
+      dry_run: ${{ needs.poll.outputs.dry_run == 'true' }}
+    secrets:
+      K8S_PUSH_TOKEN: ${{ secrets.K8S_PUSH_TOKEN }}
