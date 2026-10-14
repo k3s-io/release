@@ -57,7 +57,7 @@ jobs:
     strategy:
       matrix:
         include: ${{ fromJson(needs.poll.outputs.matrix) }}
-    uses: ./.github/workflows/sync-k8s-tags.yaml
+    uses: $/.github/workflows/sync-k8s-tags.yaml
     with:
       new_k8s_version: ${{ matrix.new_k8s_version }}
       old_k8s_version: ${{ matrix.old_k8s_version }}
